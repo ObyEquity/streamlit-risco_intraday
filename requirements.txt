@@ -1,0 +1,10 @@
+streamlit
+supabase
+pandas
+plotly
+streamlit-autorefresh
+numpy
+requests
+matplotlib
+
+
