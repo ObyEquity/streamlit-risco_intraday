@@ -130,7 +130,7 @@ with col_btn:
         st.cache_data.clear()
         st.rerun()
 
-tab1,tab2,tab3,tab4,tab5 = st.tabs(["RESUMO","EXPOSIÇÃO","OPÇÕES","PERFORMANCE","VOLUME"])
+tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(["RESUMO","EXPOSIÇÃO","OPÇÕES","PERFORMANCE","VOLUME","TRADES"])
 
 # ── RESUMO
 with tab1:
@@ -350,7 +350,7 @@ with tab2:
         st.info("Aguardando dados...")
     else:
         c_sel,c_busca = st.columns([2,3])
-        with c_sel: fundo_sel = st.selectbox("Fundo",FUNDOS_ORDEM,key="fe")
+        with c_sel: fundo_sel = st.selectbox("Fundo",FUNDOS_ORDEM,index=1,key="fe")
         with c_busca: busca = st.text_input("Buscar ativo",placeholder="PETR, AZZA...",key="be")
 
         exp_f = df_exp[df_exp["fundo"]==fundo_sel].copy()
@@ -434,7 +434,7 @@ with tab3:
         st.dataframe(dp, use_container_width=True)
 
         st.markdown("<div class='st'>Detalhe</div>", unsafe_allow_html=True)
-        fop = st.selectbox("Fundo",fo,key="fop")
+        fop = st.selectbox("Fundo",fo,index=min(1,len(fo)-1),key="fop")
         det = df_op[df_op["fundo"]==fop][["codigo_ativo","ativo_objeto","tipo_opcao","data_expire",
             "spot","strike","vol","preco_hoje","delta","quantidade_hoje","exposure","exposure_bps"]].copy()
         det.columns=["Opção","Objeto","Tipo","Vcto","Spot","Strike","Vol","Preço BS","Delta","Qtd","Exposure","BPS"]
@@ -458,7 +458,7 @@ with tab4:
     if df_pa.empty:
         st.info("Aguardando dados...")
     else:
-        fpa = st.selectbox("Fundo",[f for f in FUNDOS_ORDEM if f in df_pa["fundo"].unique()],key="fpa")
+        fpa = st.selectbox("Fundo",[f for f in FUNDOS_ORDEM if f in df_pa["fundo"].unique()],index=1,key="fpa")
         pa = df_pa[df_pa["fundo"]==fpa].sort_values("contrib_dia",ascending=False)
         tot=pa["contrib_dia"].sum(); tc=pa["contrib_dia_cash"].sum(); to=pa["contrib_dia_opcao"].sum()
         c1,c2,c3 = st.columns(3)
@@ -469,8 +469,13 @@ with tab4:
         cl,cr = st.columns(2)
         with cl:
             st.markdown("<div class='st'>Por papel</div>", unsafe_allow_html=True)
-            tp = pa[["ativo_par","subsetor","contrib_dia","contrib_dia_cash","contrib_dia_opcao"]].copy()
-            tp.columns=["Par","Setor","Total","Cash/Fut","Opção"]
+            tp = (pa.groupby(["ativo_par","subsetor"])
+                  .agg(Total=("contrib_dia","sum"),
+                       Cash_Fut=("contrib_dia_cash","sum"),
+                       Opcao=("contrib_dia_opcao","sum"))
+                  .reset_index()
+                  .sort_values("Total", ascending=False))
+            tp.columns = ["Par","Setor","Total","Cash/Fut","Opção"]
             tp["Total"]    = tp["Total"]    * 100
             tp["Cash/Fut"] = tp["Cash/Fut"] * 100
             tp["Opção"]    = tp["Opção"]    * 100
@@ -480,6 +485,7 @@ with tab4:
                     "Total":    st.column_config.NumberColumn(format="%.3f%%"),
                     "Cash/Fut": st.column_config.NumberColumn(format="%.3f%%"),
                     "Opção":    st.column_config.NumberColumn(format="%.3f%%"),
+                    "Setor":    st.column_config.TextColumn(width="medium"),
                 }
             )
         with cr:
@@ -522,3 +528,99 @@ with tab5:
             fv.update_layout(**{**PL,"height":540,"xaxis":dict(gridcolor="#1E293B",ticksuffix="x",zerolinecolor="#334155"),
                 "yaxis":dict(gridcolor="rgba(0,0,0,0)",tickfont=dict(size=10))})
             st.plotly_chart(fv,use_container_width=True)
+
+# ── TRADES
+with tab6:
+    df_cart = load("db_carteiras_fundos")
+    df_cart = filt(df_cart, d_ref)
+
+    if df_cart.empty:
+        st.info("Aguardando dados de trades...")
+    else:
+        trades = df_cart[df_cart["quantidade_movimentada"] != 0].copy()
+
+        if trades.empty:
+            st.info("Nenhum trade registrado hoje.")
+        else:
+            trades["lado"] = trades["quantidade_movimentada"].apply(lambda v: "C" if v > 0 else "V")
+            trades["ganho_pct"] = trades.apply(
+                lambda r: (r["preco_hoje"] - r["preco_medio_movimentado"]) / r["preco_medio_movimentado"]
+                if r["preco_medio_movimentado"] != 0 else 0, axis=1)
+            trades["ganho_pct"] = trades.apply(
+                lambda r: -r["ganho_pct"] if r["lado"] == "V" else r["ganho_pct"], axis=1)
+            trades["ganho_fin"] = (
+                trades["ganho_pct"] * trades["quantidade_movimentada"].abs() * trades["preco_medio_movimentado"])
+
+            # ── Tabela consolidada (ativos nas linhas, fundos nas colunas)
+            st.markdown("<div class='st'>Consolidado — quantidade por fundo</div>", unsafe_allow_html=True)
+            fundos_tr = [f for f in ["LO1","LSH1","LSH2"] if f in trades["fundo"].unique()]
+
+            consol = (trades[trades["fundo"].isin(fundos_tr)].pivot_table(
+                index="codigo_ativo", columns="fundo",
+                values="quantidade_movimentada", aggfunc="sum"
+            ).reindex(columns=fundos_tr).fillna(0))
+
+            consol["Soma"] = consol[fundos_tr].sum(axis=1)
+            consol.insert(0, "C/V", consol["Soma"].apply(lambda v: "C" if v > 0 else "V"))
+
+            # preço médio ponderado cross-fundo
+            trades_consol = trades[trades["fundo"].isin(fundos_tr)].copy()
+            pm_map = (
+                trades_consol.groupby("codigo_ativo")
+                .apply(lambda x: (
+                    (x["preco_medio_movimentado"] * x["quantidade_movimentada"].abs()).sum()
+                    / x["quantidade_movimentada"].abs().sum()
+                ) if x["quantidade_movimentada"].abs().sum() > 0 else 0)
+            )
+            consol["Preço Médio"] = consol.index.map(pm_map)
+            consol = consol.sort_index()
+
+            st.dataframe(
+                consol, use_container_width=True,
+                column_config={
+                    **{f: st.column_config.NumberColumn(format="%d") for f in fundos_tr},
+                    "Soma":        st.column_config.NumberColumn(format="%d"),
+                    "Preço Médio": st.column_config.NumberColumn(format="%.2f"),
+                }
+            )
+
+            # ── Detalhe por fundo
+            st.markdown("<div class='st'>Detalhe por fundo</div>", unsafe_allow_html=True)
+            fundo_tr = st.selectbox("Fundo", fundos_tr, index=min(1,len(fundos_tr)-1), key="fundo_tr")
+            tr = trades[trades["fundo"] == fundo_tr].copy()
+
+            total_fin = tr["ganho_fin"].sum()
+            n_trades  = len(tr)
+            n_pos     = (tr["ganho_pct"] > 0).sum()
+            cls_tot   = "pos" if total_fin >= 0 else "neg"
+
+            c1, c2, c3 = st.columns(3)
+            with c1:
+                st.markdown(f'''<div class="mc"><div class="ml">Resultado qualidade</div>
+                    <div class="mv {cls_tot}">R$ {total_fin:,.0f}</div></div>''', unsafe_allow_html=True)
+            with c2:
+                st.markdown(f'''<div class="mc"><div class="ml">Trades no dia</div>
+                    <div class="mv neu">{n_trades}</div></div>''', unsafe_allow_html=True)
+            with c3:
+                taxa = n_pos / n_trades * 100 if n_trades > 0 else 0
+                cls_tx = "pos" if taxa >= 50 else "neg"
+                st.markdown(f'''<div class="mc"><div class="ml">Taxa de acerto</div>
+                    <div class="mv {cls_tx}">{taxa:.0f}%</div></div>''', unsafe_allow_html=True)
+
+            tr_disp = tr[["codigo_ativo","lado","quantidade_movimentada",
+                           "preco_medio_movimentado","preco_hoje","ganho_pct","ganho_fin"]].copy()
+            tr_disp["quantidade_movimentada"] = tr_disp["quantidade_movimentada"].abs()
+            tr_disp["ganho_pct"] = tr_disp["ganho_pct"] * 100
+            tr_disp.columns = ["Ativo","C/V","Qtd","Preço Médio","Preço Atual","Ganho %","Ganho Fin."]
+            tr_disp = tr_disp.sort_values("Ganho Fin.", ascending=False)
+
+            st.dataframe(
+                tr_disp.set_index("Ativo"), use_container_width=True,
+                column_config={
+                    "Qtd":         st.column_config.NumberColumn(format="%d"),
+                    "Preço Médio": st.column_config.NumberColumn(format="%.2f"),
+                    "Preço Atual": st.column_config.NumberColumn(format="%.2f"),
+                    "Ganho %":     st.column_config.NumberColumn(format="%.2f%%"),
+                    "Ganho Fin.":  st.column_config.NumberColumn(format="R$ %.0f"),
+                }
+            )
