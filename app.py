@@ -359,7 +359,7 @@ with tab2:
 
         # agrupa por ativo_par
         exp_par = (exp_f.groupby(["ativo_par","subsetor"]).agg(
-            exposure_cash=("exposure_cash","sum"),
+            exposure_cash=("exposure_cash_net","sum"),
             exposure_opcao=("exposure_opcao","sum"),
             exposure_net=("exposure_net","sum"),
             beta_ajustado=("beta_ajustado","sum"),
