@@ -7,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from datetime import date
 from supabase_client import supabase
+from momentum_score_widget import render_momentum_score
 
 st.set_page_config(page_title="Risco Intraday · OBY Capital", page_icon="📊", layout="wide", initial_sidebar_state="collapsed")
 
@@ -130,7 +131,7 @@ with col_btn:
         st.cache_data.clear()
         st.rerun()
 
-tab1,tab2,tab3,tab4,tab5,tab6 = st.tabs(["RESUMO","EXPOSIÇÃO","OPÇÕES","PERFORMANCE","VOLUME","TRADES"])
+tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","OPÇÕES","PERFORMANCE","VOLUME","TRADES","MOMENTUM"])
 
 # ── RESUMO
 with tab1:
@@ -624,3 +625,8 @@ with tab6:
                     "Ganho Fin.":  st.column_config.NumberColumn(format="R$ %.0f"),
                 }
             )
+
+# ── MOMENTUM
+with tab7:
+    render_momentum_score(supabase_client=supabase)
+
