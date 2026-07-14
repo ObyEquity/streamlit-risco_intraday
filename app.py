@@ -438,7 +438,8 @@ with tab3:
         st.dataframe(dp, use_container_width=True)
 
         st.markdown("<div class='st'>Detalhe</div>", unsafe_allow_html=True)
-        fop = st.selectbox("Fundo",fo,index=min(1,len(fo)-1),key="fop")
+        fo_det = [f for f in ["LO1","LSH1","LSH2","OO1"] if f in df_op["fundo"].unique()]
+        fop = st.selectbox("Fundo",fo_det,index=min(1,len(fo_det)-1),key="fop")
         det = df_op[df_op["fundo"]==fop][["codigo_ativo","ativo_objeto","tipo_opcao","data_expire",
             "spot","strike","vol","preco_hoje","delta","quantidade_hoje","exposure","exposure_bps"]].copy()
         det.columns=["Opção","Objeto","Tipo","Vcto","Spot","Strike","Vol","Preço BS","Delta","Qtd","Exposure","BPS"]
