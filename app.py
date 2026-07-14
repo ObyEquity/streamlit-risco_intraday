@@ -13,8 +13,8 @@ st.set_page_config(page_title="Risco Intraday · OBY Capital", page_icon="📊",
 
 SCHEMA = "risco_intraday"
 REFRESH_MS = 180_000
-FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "LS Total"]
-COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LS Total": "#F59E0B"}
+FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "LS Total", "OO1"]
+COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LS Total": "#F59E0B", "OO1": "#F43F5E"}
 
 st.markdown("""<style>
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A0E1A; color: #E2E8F0; }
@@ -116,10 +116,13 @@ df_op     = load("db_table_options")
 df_pa     = load("db_perf_att_master")
 df_vol    = load("db_volume_intraday")
 df_mktcap = load("db_exp_mkt_cap")
+df_exp_d1 = load("db_exposicao_delta_1")
+df_ng_d1  = load("db_net_gross_delta_1")
 
 d_ref     = df_res["data_referencia"].max() if not df_res.empty and "data_referencia" in df_res.columns else str(date.today())
 df_res    = filt(df_res, d_ref); df_ng  = filt(df_ng, d_ref);  df_exp    = filt(df_exp, d_ref)
 df_op     = filt(df_op, d_ref);  df_pa  = filt(df_pa, d_ref);  df_mktcap = filt(df_mktcap, d_ref)
+df_exp_d1 = filt(df_exp_d1, d_ref); df_ng_d1 = filt(df_ng_d1, d_ref)
 hora      = df_hora["hora_risco"].iloc[0] if not df_hora.empty else "—"
 
 st.markdown(f'''<div class="hdr"><div><div class="logo">OBY Capital</div><div class="ttl">Risco Intraday</div></div>
@@ -131,7 +134,7 @@ with col_btn:
         st.cache_data.clear()
         st.rerun()
 
-tab1,tab2,tab3,tab4,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","OPÇÕES","PERFORMANCE","VOLUME","TRADES","MOMENTUM"])
+tab1,tab2,tab8,tab3,tab4,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","DELTA 1","OPÇÕES","PERFORMANCE","VOLUME","TRADES","MOMENTUM"])
 
 # ── RESUMO
 with tab1:
@@ -554,7 +557,7 @@ with tab6:
 
             # ── Tabela consolidada (ativos nas linhas, fundos nas colunas)
             st.markdown("<div class='st'>Consolidado — quantidade por fundo</div>", unsafe_allow_html=True)
-            fundos_tr = [f for f in ["LO1","LSH1","LSH2"] if f in trades["fundo"].unique()]
+            fundos_tr = [f for f in ["LO1","LSH1","LSH2","LS Total","OO1"] if f in trades["fundo"].unique()]
 
             consol = (trades[trades["fundo"].isin(fundos_tr)].pivot_table(
                 index="codigo_ativo", columns="fundo",
@@ -629,4 +632,128 @@ with tab6:
 # ── MOMENTUM
 with tab7:
     render_momentum_score(supabase_client=supabase)
+
+# ── DELTA 1
+with tab8:
+    if df_exp_d1.empty:
+        st.info("Aguardando dados Delta 1...")
+    else:
+        # Tabela de risco (sem retorno) usando db_net_gross_delta_1
+        if not df_ng_d1.empty:
+            st.markdown("<div class='st'>Medidas de risco — exposição Delta 1</div>", unsafe_allow_html=True)
+            ng = df_ng_d1[df_ng_d1["fundo"].isin(FUNDOS_ORDEM)].copy()
+            ng["_ord"] = ng["fundo"].map({f: i for i, f in enumerate(FUNDOS_ORDEM)})
+            ng = ng.sort_values("_ord").drop(columns="_ord")
+
+            cols_ng = ["fundo","net","gross","exp_ind","beta_ajustado","vol_ex_ante","te_ex_ante","bvar","cvar"]
+            cols_ng = [c for c in cols_ng if c in ng.columns]
+            labels  = {"fundo":"Fundo","net":"Net","gross":"Gross","exp_ind":"% Índice",
+                       "beta_ajustado":"Beta","vol_ex_ante":"Vol","te_ex_ante":"TE","bvar":"BVaR","cvar":"CVaR"}
+
+            html = '<table style="width:100%;border-collapse:collapse;font-size:.84rem;">'
+            html += '<thead><tr style="background:#0F172A">'
+            for c in cols_ng:
+                html += f'<th style="text-align:left;padding:8px 12px;border-bottom:2px solid #1E3A5F;color:#94A3B8;font-weight:700;font-size:.7rem;letter-spacing:.07em;text-transform:uppercase">{labels.get(c,c)}</th>'
+            html += "</tr></thead><tbody>"
+
+            def cor_val_d1(v):
+                try:
+                    n = float(v.replace("%",""))
+                    if n > 0: return "color:#34D399;font-weight:500"
+                    if n < 0: return "color:#FB7185;font-weight:500"
+                except: pass
+                return "color:#E2E8F0;font-weight:400"
+
+            for i_row, (_, r) in enumerate(ng.iterrows()):
+                bg = "#111827" if i_row % 2 == 0 else "#0F172A"
+                vals = {"fundo": r["fundo"]}
+                for c in cols_ng[1:]:
+                    vals[c] = pct(r.get(c)) if c != "beta_ajustado" else f"{r.get('beta_ajustado',0)*100:.1f}%"
+                html += f'<tr style="background:{bg}">'
+                for i_col, c in enumerate(cols_ng):
+                    v = vals[c]
+                    base = "padding:9px 12px;border-bottom:1px solid #0F172A;"
+                    style = base + ("color:#CBD5E1;font-weight:700;" if i_col == 0 else cor_val_d1(v) + ";")
+                    html += f'<td style="{style}">{v}</td>'
+                html += "</tr>"
+            html += "</tbody></table>"
+            st.markdown(html, unsafe_allow_html=True)
+
+        # Filtros
+        c_sel, c_busca = st.columns([2, 3])
+        with c_sel:
+            idx_oo1 = FUNDOS_ORDEM.index("OO1") if "OO1" in FUNDOS_ORDEM else 0
+            fundo_d1 = st.selectbox("Fundo", FUNDOS_ORDEM, index=idx_oo1, key="fundo_d1")
+        with c_busca:
+            busca_d1 = st.text_input("Buscar ativo", placeholder="PETR, AZZA...", key="busca_d1")
+
+        exp_d1 = df_exp_d1[df_exp_d1["fundo"] == fundo_d1].copy()
+        if busca_d1:
+            exp_d1 = exp_d1[exp_d1["ativo_par"].str.contains(busca_d1.upper(), na=False) |
+                            exp_d1["codigo_ativo"].str.contains(busca_d1.upper(), na=False)]
+
+        # agrupa por ativo_par, filtra exposure_net != 0
+        exp_par_d1 = (exp_d1.groupby(["ativo_par","subsetor"]).agg(
+            exposure_cash=("exposure_cash","sum"),
+            exposure_opcao=("exposure_opcao","sum"),
+            exposure_net=("exposure_net","sum"),
+            beta_ajustado=("beta_ajustado","sum"),
+        ).reset_index())
+        exp_par_d1 = exp_par_d1[exp_par_d1["exposure_net"] != 0]
+        exp_par_d1 = exp_par_d1.sort_values("exposure_net", ascending=False)
+
+        c1, c2 = st.columns([1, 1])
+        with c1:
+            st.markdown("<div class='st'>Por ativo par</div>", unsafe_allow_html=True)
+            t = exp_par_d1[["ativo_par","subsetor","exposure_cash","exposure_opcao","exposure_net","beta_ajustado"]].copy()
+            t.columns = ["Par","Setor","Cash","Opção","Net","Beta"]
+            t["Cash"]  = t["Cash"]  * 100
+            t["Opção"] = t["Opção"] * 100
+            t["Net"]   = t["Net"]   * 100
+            t["Beta"]  = t["Beta"]  * 100
+            st.dataframe(
+                t.set_index("Par"), use_container_width=True, height=680,
+                column_config={
+                    "Cash":  st.column_config.NumberColumn(format="%.2f%%"),
+                    "Opção": st.column_config.NumberColumn(format="%.2f%%"),
+                    "Net":   st.column_config.NumberColumn(format="%.2f%%"),
+                    "Beta":  st.column_config.NumberColumn(format="%.1f%%"),
+                }
+            )
+
+        with c2:
+            st.markdown("<div class='st'>Por setor</div>", unsafe_allow_html=True)
+            sa = exp_par_d1.groupby("subsetor")["exposure_net"].sum().reset_index().sort_values("exposure_net")
+            cores = ["#34D399" if v >= 0 else "#FB7185" for v in sa["exposure_net"]]
+            fig = go.Figure(go.Bar(
+                y=sa["subsetor"], x=sa["exposure_net"] * 100,
+                orientation="h", marker_color=cores,
+                text=[f"{v*100:.1f}%" for v in sa["exposure_net"]],
+                textposition="outside", textfont=dict(size=10, color="#94A3B8"),
+            ))
+            fig.update_layout(**{**PL, "height": 340,
+                "xaxis": dict(gridcolor="#1E293B", ticksuffix="%", zerolinecolor="#334155"),
+                "yaxis": dict(gridcolor="rgba(0,0,0,0)", tickfont=dict(size=10)),
+                "margin": dict(l=0, r=60, t=10, b=0),
+            })
+            st.plotly_chart(fig, use_container_width=True)
+
+            # Exposição por opções por ativo par
+            op_exp = exp_par_d1[exp_par_d1["exposure_opcao"] != 0].copy()
+            if not op_exp.empty:
+                st.markdown("<div class='st'>Exposição por opções</div>", unsafe_allow_html=True)
+                op_exp = op_exp.sort_values("exposure_opcao")
+                cores_op = ["#34D399" if v >= 0 else "#FB7185" for v in op_exp["exposure_opcao"]]
+                fig_op = go.Figure(go.Bar(
+                    y=op_exp["ativo_par"], x=op_exp["exposure_opcao"] * 100,
+                    orientation="h", marker_color=cores_op,
+                    text=[f"{v*100:.1f}%" for v in op_exp["exposure_opcao"]],
+                    textposition="outside", textfont=dict(size=10, color="#94A3B8"),
+                ))
+                fig_op.update_layout(**{**PL, "height": 280,
+                    "xaxis": dict(gridcolor="#1E293B", ticksuffix="%", zerolinecolor="#334155"),
+                    "yaxis": dict(gridcolor="rgba(0,0,0,0)", tickfont=dict(size=10)),
+                    "margin": dict(l=0, r=60, t=10, b=0),
+                })
+                st.plotly_chart(fig_op, use_container_width=True)
 
