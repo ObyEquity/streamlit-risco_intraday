@@ -13,8 +13,9 @@ st.set_page_config(page_title="Risco Intraday · OBY Capital", page_icon="📊",
 
 SCHEMA = "risco_intraday"
 REFRESH_MS = 180_000
-FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "LS Total", "OO1"]
-COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LS Total": "#F59E0B", "OO1": "#F43F5E"}
+FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "LS Total", "OO1", "OH1"]
+FUNDOS_DASHBOARD = ["LO1", "LSH1", "LSH2", "LS Total", "OO1"]  # exclui OH1 das abas de exposição/opções/etc
+COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LS Total": "#F59E0B", "OO1": "#F43F5E", "OH1": "#06B6D4"}
 
 st.markdown("""<style>
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A0E1A; color: #E2E8F0; }
@@ -188,7 +189,7 @@ with tab1:
         with col_setor:
             st.markdown("<div class='st'>Exposição net por setor</div>", unsafe_allow_html=True)
             if not df_exp.empty:
-                fundos_disp = [f for f in FUNDOS_ORDEM if f in df_exp["fundo"].unique()]
+                fundos_disp = [f for f in FUNDOS_DASHBOARD if f in df_exp["fundo"].unique()]
                 sp = (df_exp.groupby(["subsetor","fundo"])["exposure_net"].sum().reset_index()
                       .pivot(index="subsetor", columns="fundo", values="exposure_net")
                       .reindex(columns=fundos_disp).fillna(0))
@@ -204,7 +205,7 @@ with tab1:
         # Exposição net por ativo par — fundos nas colunas
         st.markdown("<div class='st'>Exposição net por ativo par</div>", unsafe_allow_html=True)
         if not df_exp.empty:
-            fundos_disp = [f for f in FUNDOS_ORDEM if f in df_exp["fundo"].unique()]
+            fundos_disp = [f for f in FUNDOS_DASHBOARD if f in df_exp["fundo"].unique()]
             ep = (df_exp.groupby(["ativo_par","fundo"])["exposure_net"].sum().reset_index()
                   .pivot(index="ativo_par", columns="fundo", values="exposure_net")
                   .reindex(columns=fundos_disp).fillna(0))
@@ -354,7 +355,7 @@ with tab2:
         st.info("Aguardando dados...")
     else:
         c_sel,c_busca = st.columns([2,3])
-        with c_sel: fundo_sel = st.selectbox("Fundo",FUNDOS_ORDEM,index=1,key="fe")
+        with c_sel: fundo_sel = st.selectbox("Fundo",FUNDOS_DASHBOARD,index=1,key="fe")
         with c_busca: busca = st.text_input("Buscar ativo",placeholder="PETR, AZZA...",key="be")
 
         exp_f = df_exp[df_exp["fundo"]==fundo_sel].copy()
@@ -463,7 +464,7 @@ with tab4:
     if df_pa.empty:
         st.info("Aguardando dados...")
     else:
-        fpa = st.selectbox("Fundo",[f for f in FUNDOS_ORDEM if f in df_pa["fundo"].unique()],index=1,key="fpa")
+        fpa = st.selectbox("Fundo",[f for f in FUNDOS_DASHBOARD if f in df_pa["fundo"].unique()],index=1,key="fpa")
         pa = df_pa[df_pa["fundo"]==fpa].sort_values("contrib_dia",ascending=False)
         tot=pa["contrib_dia"].sum(); tc=pa["contrib_dia_cash"].sum(); to=pa["contrib_dia_opcao"].sum()
         c1,c2,c3 = st.columns(3)
@@ -684,7 +685,7 @@ with tab8:
         c_sel, c_busca = st.columns([2, 3])
         with c_sel:
             idx_oo1 = FUNDOS_ORDEM.index("OO1") if "OO1" in FUNDOS_ORDEM else 0
-            fundo_d1 = st.selectbox("Fundo", FUNDOS_ORDEM, index=idx_oo1, key="fundo_d1")
+            fundo_d1 = st.selectbox("Fundo", FUNDOS_DASHBOARD, index=idx_oo1, key="fundo_d1")
         with c_busca:
             busca_d1 = st.text_input("Buscar ativo", placeholder="PETR, AZZA...", key="busca_d1")
 
