@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 import plotly.express as px
 from supabase_client import supabase  # seu cliente supabase configurado
 from datetime import datetime
+from datetime import date
 from funcoesAuxiliaresSt import funcoes_auxiliares
 
 @st.cache_data(ttl=60)
@@ -26,12 +27,14 @@ def carregar_dados(tabela, schema = "public"):
         st.error(f"Erro ao buscar dados: {e}")
         return pd.DataFrame()
 
-#st.set_page_config(layout="wide")
+st.set_page_config(layout="wide")
 st.title("Cotas dos fundos Oby Equities")
 
 df_fundos = carregar_dados("db_pl_fundos")[['data_referencia', 'fundo', 'valor_cota']]
 df_cdi = carregar_dados("db_cota_cdi")[['data_referencia', 'cota_cdi']]
 df_ibov = carregar_dados("db_hist_ibovespa", schema = "dados_publicos")
+df_ibov = df_ibov[df_ibov['data_referencia'] >= pd.to_datetime('2020-03-05')]
+df_ibov = df_ibov.dropna(subset=['valor'])  # remove linhas fantasma de dias sem pregão (feriados/facultativos)
 
 df_fundos = df_fundos.rename(columns = {'fundo': 'ativo', 'valor_cota': 'cota'})
 df_cdi = df_cdi.rename(columns = {'cota_cdi': 'cota'})
@@ -48,11 +51,12 @@ ativos_disponiveis = df_cotas['ativo'].unique().tolist()
 ativos_default = ['LO1_FIC', 'LSH1_FIC', 'LSH2_FIC', 'CDI', 'IBOV']
 data_min = df_cotas['data_referencia'].min().date()
 data_max = df_cotas['data_referencia'].max().date()
+inicio_ano_atual = max(date(data_max.year, 1, 1), data_min)
 
 # Seletor de intervalo de datas no calendário
 data_inicio = st.date_input(
     "Data inicial",
-    value=data_min,
+    value=inicio_ano_atual,
     min_value=data_min,
     max_value=data_max
 )
@@ -175,6 +179,9 @@ def get_cota_em_data(df, data_ref_dict):
     for ativo, data_ref in data_ref_dict.items():
         df_ativo = df_2[df_2['ativo'] == ativo]
         df_ativo = df_ativo[df_ativo['data_referencia'] <= data_ref].tail(1)
+        if df_ativo.empty:
+            cotas.append((ativo, None))
+            continue
         data_ref_2 = df_ativo.reset_index()['data_referencia'][0]
         linha = df[(df['ativo'] == ativo) & (df['data_referencia'] == data_ref_2)]
         if not linha.empty:
@@ -183,22 +190,28 @@ def get_cota_em_data(df, data_ref_dict):
             cotas.append((ativo, None))
     return dict(cotas)
 
-# Cotas passadas
-cotas_dict = {}
+def get_cota_escalar(df, data_ref, ativos):
+    """Lookup com tolerância (<=  + último disponível) para uma data escalar aplicada a vários ativos."""
+    data_ref_dict = {ativo: data_ref for ativo in ativos}
+    return get_cota_em_data(df, data_ref_dict)
+
+# Cotas passadas - fundos
+cotas_dict_fundos = {}
+ativos_fundos = df_filtrado['ativo'].unique()
 for nome, datas in datas_periodos.items():
     if isinstance(datas, pd.Series):  # mes, ytd, inicio
-        cotas_dict[nome] = get_cota_em_data(df_filtrado, datas.to_dict())
+        cotas_dict_fundos[nome] = get_cota_em_data(df_filtrado, datas.to_dict())
     else:
-        df_temp = df_filtrado[df_filtrado['data_referencia'] == datas]
-        cotas_dict[nome] = df_temp.set_index('ativo')['cota'].to_dict()
-        
-cotas_dict = {}
+        cotas_dict_fundos[nome] = get_cota_escalar(df_filtrado, datas, ativos_fundos)
+
+# Cotas passadas - índices (IBOV, CDI)
+cotas_dict_indices = {}
+ativos_indices = df_filtrado_2['ativo'].unique()
 for nome, datas in datas_periodos.items():
     if isinstance(datas, pd.Series):  # mes, ytd, inicio
-        cotas_dict[nome] = get_cota_em_data(df_filtrado_2, datas.to_dict())
+        cotas_dict_indices[nome] = get_cota_em_data(df_filtrado_2, datas.to_dict())
     else:
-        df_temp = df_filtrado_2[df_filtrado_2['data_referencia'] == datas]
-        cotas_dict[nome] = df_temp.set_index('ativo')['cota'].to_dict()        
+        cotas_dict_indices[nome] = get_cota_escalar(df_filtrado_2, datas, ativos_indices)
 
 # Calculando retornos
 def calcula_retorno(cota_atual, cota_passada):
@@ -206,29 +219,29 @@ def calcula_retorno(cota_atual, cota_passada):
         return cota_atual / cota_passada - 1
     return None
 
-df_ult['rent_dia'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['dia'].get(row['ativo'])), axis=1)
-df_ult['rent_mes'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['mes'].get(row['ativo'])), axis=1)
-df_ult['rent_ytd'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['ytd'].get(row['ativo'])), axis=1)
-df_ult['rent_12m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['12m'].get(row['ativo'])), axis=1)
-df_ult['rent_24m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['24m'].get(row['ativo'])), axis=1)
-df_ult['rent_36m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['36m'].get(row['ativo'])), axis=1)
-df_ult['rent_total'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['inicio'].get(row['ativo'])), axis=1)
+df_ult['rent_dia'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['dia'].get(row['ativo'])), axis=1)
+df_ult['rent_mes'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['mes'].get(row['ativo'])), axis=1)
+df_ult['rent_ytd'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['ytd'].get(row['ativo'])), axis=1)
+df_ult['rent_12m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['12m'].get(row['ativo'])), axis=1)
+df_ult['rent_24m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['24m'].get(row['ativo'])), axis=1)
+df_ult['rent_36m'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['36m'].get(row['ativo'])), axis=1)
+df_ult['rent_total'] = df_ult.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_fundos['inicio'].get(row['ativo'])), axis=1)
 
 
-df_ult_2['rent_dia'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['dia'].get(row['ativo'])), axis=1)
-df_ult_2['rent_mes'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['mes'].get(row['ativo'])), axis=1)
-df_ult_2['rent_ytd'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['ytd'].get(row['ativo'])), axis=1)
-df_ult_2['rent_12m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['12m'].get(row['ativo'])), axis=1)
-df_ult_2['rent_24m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['24m'].get(row['ativo'])), axis=1)
-df_ult_2['rent_36m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict['36m'].get(row['ativo'])), axis=1)
+df_ult_2['rent_dia'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['dia'].get(row['ativo'])), axis=1)
+df_ult_2['rent_mes'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['mes'].get(row['ativo'])), axis=1)
+df_ult_2['rent_ytd'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['ytd'].get(row['ativo'])), axis=1)
+df_ult_2['rent_12m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['12m'].get(row['ativo'])), axis=1)
+df_ult_2['rent_24m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['24m'].get(row['ativo'])), axis=1)
+df_ult_2['rent_36m'] = df_ult_2.apply(lambda row: calcula_retorno(row['cota'], cotas_dict_indices['36m'].get(row['ativo'])), axis=1)
 df_ult_2['rent_total'] = 0
 df_ult_2['rent_total'] = df_ult_2['rent_total'].astype(float)
 df_ult_2.loc[df_ult_2['ativo'] == 'IBOV', 'rent_total'] = calcula_retorno(df_ult_2.loc[df_ult_2['ativo'] == 'IBOV', 'cota'].values[0],
-                                                                          cotas_dict['inicio IBOV']['IBOV'])
+                                                                          cotas_dict_indices['inicio IBOV']['IBOV'])
 df_ult_2.loc[df_ult_2['ativo'] == 'CDI - OBY LONG SHORT', 'rent_total'] = calcula_retorno(df_ult_2.loc[df_ult_2['ativo'] == 'CDI - OBY LONG SHORT', 'cota'].values[0],
-                                                                          cotas_dict['inicio CDI H1']['CDI - OBY LONG SHORT'])
+                                                                          cotas_dict_indices['inicio CDI H1']['CDI - OBY LONG SHORT'])
 df_ult_2.loc[df_ult_2['ativo'] == 'CDI - OBY LONG SHORT 2X', 'rent_total'] = calcula_retorno(df_ult_2.loc[df_ult_2['ativo'] == 'CDI - OBY LONG SHORT 2X', 'cota'].values[0],
-                                                                          cotas_dict['inicio CDI H2']['CDI - OBY LONG SHORT 2X'])
+                                                                          cotas_dict_indices['inicio CDI H2']['CDI - OBY LONG SHORT 2X'])
 
 # PL atual e PL médio 12M
 df_pl_12m = df_filtrado[df_filtrado['data_referencia'] >= (data_base - pd.DateOffset(months=12))]
@@ -354,4 +367,3 @@ st.markdown(
     styled_df.to_html(escape=False),
     unsafe_allow_html=True
 )
-
