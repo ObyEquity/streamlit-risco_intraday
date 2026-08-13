@@ -14,9 +14,9 @@ from datetime import datetime
 from funcoesAuxiliaresSt import funcoes_auxiliares
 
 @st.cache_data(ttl=60)
-def carregar_dados(tabela):
+def carregar_dados(tabela, schema = "public"):
     try:
-        response = supabase.table(tabela).select("*").execute()
+        response = supabase.schema(schema).table(tabela).select("*").execute()
         df = pd.DataFrame(response.data)
         df['data_referencia'] = pd.to_datetime(df['data_referencia'])
         df = df.sort_values('data_referencia')
@@ -31,7 +31,7 @@ st.title("Cotas dos fundos Oby Equities")
 
 df_fundos = carregar_dados("db_pl_fundos")[['data_referencia', 'fundo', 'valor_cota']]
 df_cdi = carregar_dados("db_cota_cdi")[['data_referencia', 'cota_cdi']]
-df_ibov = carregar_dados("db_hist_ibovespa")
+df_ibov = carregar_dados("db_hist_ibovespa", schema = "dados_publicos")
 
 df_fundos = df_fundos.rename(columns = {'fundo': 'ativo', 'valor_cota': 'cota'})
 df_cdi = df_cdi.rename(columns = {'cota_cdi': 'cota'})
