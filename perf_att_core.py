@@ -41,8 +41,8 @@ FUNDOS_RELATIVOS_BENCHMARK = {
 
 # tabela/coluna de onde ler cada benchmark suportado (schema public)
 BENCHMARKS = {
-    'IBOV': {'table': 'db_hist_ibovespa', 'filtro_codigo_ativo': 'IBOV', 'coluna_valor': 'valor', 'tipo': 'nivel'},
-    'CDI': {'table': 'db_cota_cdi', 'filtro_codigo_ativo': None, 'coluna_valor': 'taxa_over_diaria', 'tipo': 'retorno_pct'},
+    'IBOV': {'schema': 'dados_publicos', 'table': 'db_hist_ibovespa', 'filtro_codigo_ativo': 'IBOV', 'coluna_valor': 'valor', 'tipo': 'nivel'},
+    'CDI': {'schema': 'public', 'table': 'db_cota_cdi', 'filtro_codigo_ativo': None, 'coluna_valor': 'taxa_over_diaria', 'tipo': 'retorno_pct'},
 }
 
 LINHA_CUSTOS = 'Custos e Taxas'
@@ -98,7 +98,7 @@ def carrega_benchmark(fa, benchmark: str, data_inicio: str, data_fim: str) -> pd
         field_date='data_referencia',
         start_date=inicio_busca,
         end_date=data_fim,
-        schema_name='public',
+        schema_name=cfg['schema'],
         table=cfg['table'],
     )
     if df.empty:

@@ -119,15 +119,172 @@ df_vol    = load("db_volume_intraday")
 df_mktcap = load("db_exp_mkt_cap")
 df_exp_d1 = load("db_exposicao_delta_1")
 df_ng_d1  = load("db_net_gross_delta_1")
+df_st_res = load("db_stress_resumo")
+df_st_exp = load("db_stress_exposicao")
+df_st_op  = load("db_stress_opcoes")
 
 d_ref     = df_res["data_referencia"].max() if not df_res.empty and "data_referencia" in df_res.columns else str(date.today())
 df_res    = filt(df_res, d_ref); df_ng  = filt(df_ng, d_ref);  df_exp    = filt(df_exp, d_ref)
 df_op     = filt(df_op, d_ref);  df_pa  = filt(df_pa, d_ref);  df_mktcap = filt(df_mktcap, d_ref)
 df_exp_d1 = filt(df_exp_d1, d_ref); df_ng_d1 = filt(df_ng_d1, d_ref)
+df_st_res = filt(df_st_res, d_ref); df_st_exp = filt(df_st_exp, d_ref); df_st_op = filt(df_st_op, d_ref)
 hora      = df_hora["hora_risco"].iloc[0] if not df_hora.empty else "—"
 
 st.markdown(f'''<div class="hdr"><div><div class="logo">OBY Capital</div><div class="ttl">Risco Intraday</div></div>
 <div class="hra">Última atualização<span>{hora}</span>{d_ref}</div></div>''', unsafe_allow_html=True)
+
+# ── STRESS (db_stress_*): compara cenário com o risco atual (db_net_gross_fundos / db_exposicao_ativos / db_table_options)
+FUNDOS_STRESS = ["LO1", "LSH1", "LSH2", "OH1"]
+
+def _sel_choque(df, choque, modo="beta"):
+    if df.empty or "choque" not in df.columns:
+        return pd.DataFrame()
+    m = (pd.to_numeric(df["choque"], errors="coerce") - choque).abs() < 1e-9
+    if "modo" in df.columns:
+        m &= df["modo"] == modo
+    return df[m].copy()
+
+def _tabela_html(rows, cols, labels):
+    def cor(v):
+        try:
+            n = float(str(v).replace("%", "").replace("pp", "").replace("+", ""))
+            if n > 0: return "color:#34D399;font-weight:500"
+            if n < 0: return "color:#FB7185;font-weight:500"
+        except: pass
+        return "color:#E2E8F0;font-weight:400"
+    h = '<table style="width:100%;border-collapse:collapse;font-size:.84rem;"><thead><tr style="background:#0F172A">'
+    for c in cols:
+        h += f'<th style="text-align:left;padding:8px 12px;border-bottom:2px solid #1E3A5F;color:#94A3B8;font-weight:700;font-size:.7rem;letter-spacing:.07em;text-transform:uppercase">{labels.get(c, c)}</th>'
+    h += "</tr></thead><tbody>"
+    for i, r in enumerate(rows):
+        bg = "#111827" if i % 2 == 0 else "#0F172A"
+        h += f'<tr style="background:{bg}">'
+        for j, c in enumerate(cols):
+            v = r[c]
+            stl = "padding:9px 12px;border-bottom:1px solid #1E293B;" + ("color:#CBD5E1;font-weight:700;" if j == 0 else cor(v) + ";")
+            h += f'<td style="{stl}">{v}</td>'
+        h += "</tr>"
+    return h + "</tbody></table>"
+
+def _pp(v, dec=2):
+    if pd.isna(v): return "—"
+    return f"{v*100:+.{dec}f}pp"
+
+def render_stress(choque, key):
+    rs = _sel_choque(df_st_res, choque)
+    if rs.empty:
+        st.info("Sem dados de stress para este cenário.")
+        return
+    lbl = f"{choque*100:+.0f}%"
+    hora_st = rs["hora_risco"].dropna().iloc[0] if "hora_risco" in rs.columns and rs["hora_risco"].notna().any() else "—"
+    if hora_st != hora:
+        st.warning(f"Stress calculado às {hora_st}; risco atual às {hora}.")
+
+    fundos_st = [f for f in FUNDOS_STRESS if f in rs["fundo"].unique()]
+    base = df_ng.set_index("fundo") if not df_ng.empty else pd.DataFrame()
+    rs = rs.set_index("fundo")
+
+    # Cards: impacto na cota
+    st.markdown(f"<div class='st'>Impacto na cota — Ibov {lbl} (beta)</div>", unsafe_allow_html=True)
+    cc = st.columns(len(fundos_st))
+    for c, f in zip(cc, fundos_st):
+        dv = rs.at[f, "delta_cota"]; rv = rs.at[f, "retorno_cenario"]
+        cls = "pos" if dv > 0 else "neg"
+        with c:
+            st.markdown(f'<div class="mc"><div class="ml">{f}</div><div class="mv {cls}">{pct(dv)}</div>'
+                        f'<div class="ms">Retorno do dia no cenário: {pct(rv)}</div></div>', unsafe_allow_html=True)
+
+    # Medidas de risco: cenário e variação vs atual
+    st.markdown("<div class='st'>Medidas de risco — cenário vs atual</div>", unsafe_allow_html=True)
+    metr = [("net", "Net", 2), ("gross", "Gross", 2), ("exp_ind", "% Índice", 2), ("beta_ajustado", "Beta", 1),
+            ("te_ex_ante", "TE", 2), ("bvar", "BVaR", 2), ("cvar", "CVaR", 2)]
+    cols = ["Fundo"]; labels = {}
+    for m, l, _ in metr:
+        cols += [m, m + "_d"]; labels[m] = l; labels[m + "_d"] = "Δ " + l
+    rows = []
+    for f in fundos_st:
+        r = {"Fundo": f}
+        for m, _, dec in metr:
+            v = rs.at[f, m] if m in rs.columns else float("nan")
+            b = base.at[f, m] if (not base.empty and f in base.index and m in base.columns) else float("nan")
+            r[m] = pct(v, dec); r[m + "_d"] = _pp(v - b, dec)
+        rows.append(r)
+    st.markdown(_tabela_html(rows, cols, labels), unsafe_allow_html=True)
+
+    # Decomposição do net: cash / opções / índice
+    if {"soma_cash", "soma_opcao"}.issubset(rs.columns):
+        st.markdown("<div class='st'>Composição da exposição no cenário</div>", unsafe_allow_html=True)
+        rows = [{"Fundo": f, "c": pct(rs.at[f, "soma_cash"]), "o": pct(rs.at[f, "soma_opcao"]),
+                 "i": pct(rs.at[f, "exp_ind"]), "n": pct(rs.at[f, "net"])} for f in fundos_st]
+        st.markdown(_tabela_html(rows, ["Fundo", "c", "o", "i", "n"],
+                    {"c": "Cash", "o": "Opções (delta)", "i": "Índice futuro", "n": "Net"}), unsafe_allow_html=True)
+
+    ex = _sel_choque(df_st_exp, choque)
+    if ex.empty:
+        return
+    c_sel, c_busca = st.columns([2, 3])
+    with c_sel:
+        fsel = st.selectbox("Fundo", fundos_st, index=min(1, len(fundos_st) - 1), key=f"fst_{key}")
+    with c_busca:
+        busca = st.text_input("Buscar ativo", placeholder="PETR, VALE...", key=f"bst_{key}")
+
+    def por_par(df):
+        return (df.groupby(["ativo_par", "subsetor"]).agg(
+            Cash=("exposure_cash_net", "sum"), Opcao=("exposure_opcao", "sum"),
+            Net=("exposure_net", "sum"), Beta=("beta_ajustado", "sum")).reset_index())
+
+    ef = por_par(ex[ex["fundo"] == fsel])
+    eb = por_par(df_exp[df_exp["fundo"] == fsel]) if not df_exp.empty else pd.DataFrame(columns=["ativo_par", "subsetor", "Net"])
+    t = ef.merge(eb[["ativo_par", "Net"]].rename(columns={"Net": "Net atual"}), on="ativo_par", how="outer").fillna(0)
+    t["subsetor"] = t["subsetor"].replace(0, "—")
+    t["Δ Net"] = t["Net"] - t["Net atual"]
+    t = t[(t["Net"].abs() > 1e-6) | (t["Net atual"].abs() > 1e-6)]
+    if busca:
+        t = t[t["ativo_par"].str.contains(busca.upper(), na=False)]
+    t = t.sort_values("Net", ascending=False)
+
+    c1, c2 = st.columns([1, 1])
+    with c1:
+        st.markdown(f"<div class='st'>Por ativo par — {fsel}</div>", unsafe_allow_html=True)
+        tt = t[["ativo_par", "subsetor", "Cash", "Opcao", "Net", "Net atual", "Δ Net", "Beta"]].copy()
+        tt.columns = ["Par", "Setor", "Cash", "Opção", "Net", "Net atual", "Δ Net", "Beta"]
+        for c in ["Cash", "Opção", "Net", "Net atual", "Δ Net", "Beta"]:
+            tt[c] = tt[c] * 100
+        st.dataframe(tt.set_index("Par"), use_container_width=True, height=680,
+            column_config={**{c: st.column_config.NumberColumn(format="%.2f%%") for c in ["Cash", "Opção", "Net", "Net atual", "Δ Net"]},
+                           "Beta": st.column_config.NumberColumn(format="%.1f%%")})
+
+    with c2:
+        st.markdown(f"<div class='st'>Por setor — {fsel}</div>", unsafe_allow_html=True)
+        sa = (t.groupby("subsetor")[["Cash", "Opcao", "Net", "Net atual", "Beta"]].sum().reset_index())
+        sa["Δ Net"] = sa["Net"] - sa["Net atual"]
+        sa = sa.sort_values("Net", ascending=False)
+        ts = sa[["subsetor", "Cash", "Opcao", "Net", "Net atual", "Δ Net", "Beta"]].copy()
+        ts.columns = ["Setor", "Cash", "Opção", "Net", "Net atual", "Δ Net", "Beta"]
+        for c in ["Cash", "Opção", "Net", "Net atual", "Δ Net", "Beta"]:
+            ts[c] = ts[c] * 100
+        st.dataframe(ts.set_index("Setor"), use_container_width=True, height=420,
+            column_config={**{c: st.column_config.NumberColumn(format="%.2f%%") for c in ["Cash", "Opção", "Net", "Net atual", "Δ Net"]},
+                           "Beta": st.column_config.NumberColumn(format="%.1f%%")})
+
+        op = _sel_choque(df_st_op, choque)
+        op = op[op["fundo"] == fsel] if not op.empty else op
+        if not op.empty:
+            st.markdown("<div class='st'>Opções — delta atual vs cenário</div>", unsafe_allow_html=True)
+            ob = df_op[df_op["fundo"] == fsel][["codigo_ativo", "delta", "exposure"]] if not df_op.empty else pd.DataFrame(columns=["codigo_ativo", "delta", "exposure"])
+            od = op[["codigo_ativo", "ativo_objeto", "tipo_opcao", "strike", "spot", "delta", "exposure"]].merge(
+                ob.rename(columns={"delta": "Delta atual", "exposure": "Exp. atual"}), on="codigo_ativo", how="left")
+            od["Δ Exp."] = od["exposure"] - od["Exp. atual"]
+            od = od.sort_values("Δ Exp.")
+            od.columns = ["Opção", "Objeto", "Tipo", "Strike", "Spot cenário", "Delta cenário", "Exp. cenário", "Delta atual", "Exp. atual", "Δ Exp."]
+            for c in ["Exp. cenário", "Exp. atual", "Δ Exp."]:
+                od[c] = od[c] * 100
+            st.dataframe(od.set_index("Opção"), use_container_width=True,
+                column_config={"Strike": st.column_config.NumberColumn(format="%.2f"),
+                               "Spot cenário": st.column_config.NumberColumn(format="%.2f"),
+                               "Delta cenário": st.column_config.NumberColumn(format="%.3f"),
+                               "Delta atual": st.column_config.NumberColumn(format="%.3f"),
+                               **{c: st.column_config.NumberColumn(format="%.2f%%") for c in ["Exp. cenário", "Exp. atual", "Δ Exp."]}})
 
 _, col_btn = st.columns([6, 1])
 with col_btn:
@@ -135,7 +292,7 @@ with col_btn:
         st.cache_data.clear()
         st.rerun()
 
-tab1,tab2,tab8,tab3,tab4,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","DELTA 1","OPÇÕES","PERFORMANCE","VOLUME","TRADES","MOMENTUM"])
+tab1,tab2,tab8,tab3,tab4,tab9,tab10,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","DELTA 1","OPÇÕES","PERFORMANCE","STRESS −5%","STRESS +5%","VOLUME","TRADES","MOMENTUM"])
 
 # ── RESUMO
 with tab1:
@@ -759,3 +916,9 @@ with tab8:
                 })
                 st.plotly_chart(fig_op, use_container_width=True)
 
+# ── STRESS −5% / +5%
+with tab9:
+    render_stress(-0.05, "m5")
+
+with tab10:
+    render_stress(0.05, "p5")
