@@ -292,7 +292,7 @@ with col_btn:
         st.cache_data.clear()
         st.rerun()
 
-tab1,tab2,tab8,tab3,tab4,tab9,tab10,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","DELTA 1","OPÇÕES","PERFORMANCE","STRESS −15%","STRESS +7,5%","VOLUME","TRADES","MOMENTUM"])
+tab1,tab2,tab8,tab3,tab4,tab9,tab10,tab5,tab6,tab7 = st.tabs(["RESUMO","EXPOSIÇÃO","DELTA 1","OPÇÕES","PERFORMANCE","STRESS −5%","STRESS +5%","VOLUME","TRADES","MOMENTUM"])
 
 # ── RESUMO
 with tab1:
@@ -916,9 +916,9 @@ with tab8:
                 })
                 st.plotly_chart(fig_op, use_container_width=True)
 
-# ── STRESS −15% / +7.5%
+# ── STRESS −5% / +5%
 with tab9:
-    render_stress(-0.15, "m5")
+    render_stress(-0.05, "m5")
 
 with tab10:
-    render_stress(0.075, "p5")
+    render_stress(0.05, "p5")
