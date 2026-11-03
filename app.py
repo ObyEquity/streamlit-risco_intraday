@@ -583,7 +583,7 @@ with tab3:
         st.info("Sem dados de opções.")
     else:
         st.markdown("<div class='st'>Carteira — preço Black-Scholes</div>", unsafe_allow_html=True)
-        fo = [f for f in ["LO1","LSH1","LSH2"] if f in df_op["fundo"].unique()]
+        fo = [f for f in ["LO1","LSH1","LSH2","OH1"] if f in df_op["fundo"].unique()]
         pv = df_op[df_op["fundo"].isin(fo)].pivot_table(
             index="codigo_ativo", columns="fundo", values="quantidade_hoje", aggfunc="sum"
         ).reindex(columns=fo)
@@ -596,7 +596,7 @@ with tab3:
         st.dataframe(dp, use_container_width=True)
 
         st.markdown("<div class='st'>Detalhe</div>", unsafe_allow_html=True)
-        fo_det = [f for f in ["LO1","LSH1","LSH2","OO1"] if f in df_op["fundo"].unique()]
+        fo_det = [f for f in ["LO1","LSH1","LSH2","OO1","OH1"] if f in df_op["fundo"].unique()]
         fop = st.selectbox("Fundo",fo_det,index=min(1,len(fo_det)-1),key="fop")
         det = df_op[df_op["fundo"]==fop][["codigo_ativo","ativo_objeto","tipo_opcao","data_expire",
             "spot","strike","vol","preco_hoje","delta","quantidade_hoje","exposure","exposure_bps"]].copy()
