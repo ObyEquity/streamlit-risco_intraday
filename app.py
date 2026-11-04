@@ -716,7 +716,7 @@ with tab6:
 
             # ── Tabela consolidada (ativos nas linhas, fundos nas colunas)
             st.markdown("<div class='st'>Consolidado — quantidade por fundo</div>", unsafe_allow_html=True)
-            fundos_tr = [f for f in ["LO1","LSH1","LSH2","LS Total","OO1"] if f in trades["fundo"].unique()]
+            fundos_tr = [f for f in ["LO1","LSH1","LSH2","OH1"] if f in trades["fundo"].unique()]
 
             consol = (trades[trades["fundo"].isin(fundos_tr)].pivot_table(
                 index="codigo_ativo", columns="fundo",
