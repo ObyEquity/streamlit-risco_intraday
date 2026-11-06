@@ -13,9 +13,9 @@ st.set_page_config(page_title="Risco Intraday · OBY Capital", page_icon="📊",
 
 SCHEMA = "risco_intraday"
 REFRESH_MS = 180_000
-FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "LS Total", "OO1", "OH1"]
-FUNDOS_DASHBOARD = ["LO1", "LSH1", "LSH2", "LS Total", "OO1"]  # exclui OH1 das abas de exposição/opções/etc
-COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LS Total": "#F59E0B", "OO1": "#F43F5E", "OH1": "#06B6D4"}
+FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "OH1", "LSO1", "LS Total", "OO1"]
+FUNDOS_DASHBOARD = ["LO1", "LSH1", "LSH2", "LSO1", "LS Total", "OO1"]  # exclui OH1 das abas de exposição/opções/etc
+COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LSO1": "#F59E0B", "LS Total": "#F59E0B", "OO1": "#F43F5E", "OH1": "#06B6D4"}
 
 st.markdown("""<style>
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A0E1A; color: #E2E8F0; }
@@ -134,7 +134,7 @@ st.markdown(f'''<div class="hdr"><div><div class="logo">OBY Capital</div><div cl
 <div class="hra">Última atualização<span>{hora}</span>{d_ref}</div></div>''', unsafe_allow_html=True)
 
 # ── STRESS (db_stress_*): compara cenário com o risco atual (db_net_gross_fundos / db_exposicao_ativos / db_table_options)
-FUNDOS_STRESS = ["LO1", "LSH1", "LSH2", "OH1"]
+FUNDOS_STRESS = ["LO1", "LSH1", "LSH2", "OH1", "LSO1"]
 
 def _sel_choque(df, choque, modo="beta"):
     if df.empty or "choque" not in df.columns:
@@ -583,7 +583,7 @@ with tab3:
         st.info("Sem dados de opções.")
     else:
         st.markdown("<div class='st'>Carteira — preço Black-Scholes</div>", unsafe_allow_html=True)
-        fo = [f for f in ["LO1","LSH1","LSH2","OH1"] if f in df_op["fundo"].unique()]
+        fo = [f for f in ["LO1","LSH1","LSH2", "OH1"] if f in df_op["fundo"].unique()]
         pv = df_op[df_op["fundo"].isin(fo)].pivot_table(
             index="codigo_ativo", columns="fundo", values="quantidade_hoje", aggfunc="sum"
         ).reindex(columns=fo)
@@ -596,7 +596,7 @@ with tab3:
         st.dataframe(dp, use_container_width=True)
 
         st.markdown("<div class='st'>Detalhe</div>", unsafe_allow_html=True)
-        fo_det = [f for f in ["LO1","LSH1","LSH2","OO1","OH1"] if f in df_op["fundo"].unique()]
+        fo_det = [f for f in ["LO1","LSH1","LSH2","LSO1","OH1", "OO1"] if f in df_op["fundo"].unique()]
         fop = st.selectbox("Fundo",fo_det,index=min(1,len(fo_det)-1),key="fop")
         det = df_op[df_op["fundo"]==fop][["codigo_ativo","ativo_objeto","tipo_opcao","data_expire",
             "spot","strike","vol","preco_hoje","delta","quantidade_hoje","exposure","exposure_bps"]].copy()
@@ -716,7 +716,7 @@ with tab6:
 
             # ── Tabela consolidada (ativos nas linhas, fundos nas colunas)
             st.markdown("<div class='st'>Consolidado — quantidade por fundo</div>", unsafe_allow_html=True)
-            fundos_tr = [f for f in ["LO1","LSH1","LSH2","OH1"] if f in trades["fundo"].unique()]
+            fundos_tr = [f for f in ["LO1","LSH1","LSH2","OH1", "LSO1"] if f in trades["fundo"].unique()]
 
             consol = (trades[trades["fundo"].isin(fundos_tr)].pivot_table(
                 index="codigo_ativo", columns="fundo",
@@ -841,8 +841,8 @@ with tab8:
         # Filtros
         c_sel, c_busca = st.columns([2, 3])
         with c_sel:
-            idx_oo1 = FUNDOS_ORDEM.index("OO1") if "OO1" in FUNDOS_ORDEM else 0
-            fundo_d1 = st.selectbox("Fundo", FUNDOS_DASHBOARD, index=idx_oo1, key="fundo_d1")
+            idx_lso1 = FUNDOS_ORDEM.index("LSO1") if "LSO1" in FUNDOS_ORDEM else 0
+            fundo_d1 = st.selectbox("Fundo", FUNDOS_DASHBOARD, index=idx_lso1, key="fundo_d1")
         with c_busca:
             busca_d1 = st.text_input("Buscar ativo", placeholder="PETR, AZZA...", key="busca_d1")
 
