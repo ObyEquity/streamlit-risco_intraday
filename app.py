@@ -13,9 +13,9 @@ st.set_page_config(page_title="Risco Intraday · OBY Capital", page_icon="📊",
 
 SCHEMA = "risco_intraday"
 REFRESH_MS = 180_000
-FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "OH1", "LSO1", "LS Total", "OO1"]
-FUNDOS_DASHBOARD = ["LO1", "LSH1", "LSH2", "LSO1", "LS Total", "OO1"]  # exclui OH1 das abas de exposição/opções/etc
-COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LSO1": "#F59E0B", "LS Total": "#F59E0B", "OO1": "#F43F5E", "OH1": "#06B6D4"}
+FUNDOS_ORDEM = ["LO1", "LSH1", "LSH2", "OH1", "LSO1", "LS Total"]
+FUNDOS_DASHBOARD = ["LO1", "LSH1", "LSH2", "LSO1", "LS Total"]  # exclui OH1 das abas de exposição/opções/etc
+COR_FUNDO = {"LO1": "#3B82F6", "LSH1": "#10B981", "LSH2": "#8B5CF6", "LSO1": "#F59E0B", "LS Total": "#F59E0B", "OH1": "#06B6D4"}
 
 st.markdown("""<style>
 html, body, [class*="css"] { font-family: 'Inter', sans-serif; background-color: #0A0E1A; color: #E2E8F0; }
@@ -596,7 +596,7 @@ with tab3:
         st.dataframe(dp, use_container_width=True)
 
         st.markdown("<div class='st'>Detalhe</div>", unsafe_allow_html=True)
-        fo_det = [f for f in ["LO1","LSH1","LSH2","LSO1","OH1", "OO1"] if f in df_op["fundo"].unique()]
+        fo_det = [f for f in ["LO1","LSH1","LSH2","LSO1","OH1"] if f in df_op["fundo"].unique()]
         fop = st.selectbox("Fundo",fo_det,index=min(1,len(fo_det)-1),key="fop")
         det = df_op[df_op["fundo"]==fop][["codigo_ativo","ativo_objeto","tipo_opcao","data_expire",
             "spot","strike","vol","preco_hoje","delta","quantidade_hoje","exposure","exposure_bps"]].copy()
